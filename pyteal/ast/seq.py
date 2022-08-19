@@ -51,10 +51,7 @@ class Seq(Expr):
         filtered_exprs: list[Expr] = []
         for i, expr in enumerate(exprs):
             if not isinstance(expr, Expr):
-                if isinstance(expr, Var):
-                    expr = expr.__get_or_store__()
-                else:
-                    continue
+                continue
             if i + 1 < len(exprs):
                 require_type(expr, TealType.none)
 

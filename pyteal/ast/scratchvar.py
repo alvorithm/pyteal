@@ -23,18 +23,34 @@ def wrap_native(val: VarSetable) -> Expr:
             raise TealTypeError(val, VarSetable)
 
 
-class Var:
+class Var(Expr):
     def __init__(self, val: VarSetable):
+        self.type_checked: bool = False
         self.val_to_store: Optional[Expr] = wrap_native(val)
         self.scratch = ScratchVar(self.val_to_store.type_of())
 
-    def __get_or_store__(self) -> Expr:
+    def __str__(self)->str:
+        return f"(Var ({self.scratch}))"
+    
+    def __teal__(self, opts)->str:
         if self.val_to_store is not None:
             store_op = self.scratch.store(self.val_to_store)
             self.val_to_store = None
-            return store_op
+            return store_op.__teal__(opts)
 
-        return self.scratch.load()
+        return self.scratch.load().__teal__(opts)
+
+    def type_of(self) -> TealType:
+        # Seq calls type check on everything 
+        # before calling __teal__
+        if not self.type_checked:
+            self.type_checked = True
+            return TealType.none
+
+        return self.scratch.type
+
+    def has_return(self) -> bool:
+        return False
 
     def __call__(self, val: VarSetable) -> Expr:
         return self.scratch.store(wrap_native(val))
