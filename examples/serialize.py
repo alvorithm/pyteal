@@ -1,10 +1,12 @@
-from cmath import exp
 from typing import Iterable
 from build.lib.pyteal.ast.txn import TxnExprBuilder
 from pyteal import *
+from pyteal.ast.comment import CommentExpr
+from pyteal.ast.return_ import ExitProgram
 
 slots_in_use: dict[int, ScratchSlot] = {}
 
+op_lookup = {str(op):op.name  for op in Op}
 
 class SerializedExpr:
     def __init__(self, name: str, args: list["SerializedExpr"]):
@@ -89,15 +91,24 @@ class SerializedExpr:
                 if e.slot is not None:
                     nested_args.append(SerializedExpr.from_expr(e.slot))
                 nested_args.append(SerializedExpr.from_expr(e.value))
+            case ExitProgram():
+                name = "ExitProgram"
+                nested_args.append(SerializedExpr.from_expr(e.success))
+            case CommentExpr():
+                name="Comment"
+                #nested_args.append(e.comment)
+            case int() | str() | bytes():
+                pass
             case _:
-                # print(f"unhandled: {e.__class__}")
+                print(f"unhandled: {e.__class__}")
                 pass
 
         if name == "":
             if hasattr(e, "op"):
-                name = e.op.name.title().replace("_", "")
-                if name == "LogicAnd":
-                    name = "And"
+                name = str(e.op)
+                #name = e.op.name.title().replace("_", "")
+                #if name == "LogicAnd":
+                #    name = "And"
             elif len(nested_args) == 0:
                 name = e[1] if type(e) is tuple else str(e)
             else:
@@ -129,7 +140,6 @@ class SerializedExpr:
             id = int(self.args[0].name)
             if id in slots_in_use:
                 return slots_in_use[id]
-
             ss = ScratchSlot()
             ss.id = id
             slots_in_use[id] = ss
@@ -144,9 +154,10 @@ class SerializedExpr:
             expr = eval(self.name)(*args[:-2])
             expr.output_slots = args[-2:]
             return expr
-
         elif self.name.startswith("OnComplete"):
             return eval(self.name)
+        elif self.name in op_lookup:
+            self.name = op_lookup[self.name].title()
 
         args = [arg.to_expr() for arg in self.args]
         thing = eval(self.name)
@@ -156,37 +167,28 @@ class SerializedExpr:
         return thing(*args)
 
     def dictify(self) -> dict:
-        return {"name": self.name, "args": [a.dictify() for a in self.args]}
+        d = {"name": self.name, "args": [a.dictify() for a in self.args]}
+        if len(d["args"]) == 0:
+            del d["args"]
+        return d
 
 
 if __name__ == "__main__":
-    from application.vote import approval_program
 
-    program = approval_program()
-
-    # program = Seq(
-    #    val := App.globalGetEx(Int(0), Bytes("asdf")),
-    #    Assert(val.hasValue()),
-    #    val.value(),
-    # )
-
-    # program = Seq(
-    #    (sv := ScratchVar()).store(Int(1)),
-    #    Assert(sv.load()),
-    #    sv.load(),
-    # )
+    program = Seq(
+        If(Txn.application_id() == Int(0)).Then(
+            Approve()
+        )
+    )
 
     se = SerializedExpr.from_expr(program)
     regen_program = se.to_expr()
 
-    # print(program)
-    # print(regen_program)
-
     import json
-
+    print(se.dictify())
     js = json.dumps(se.dictify(), indent=2)
-    with open("approval.json", "w") as f:
-        f.write(js)
+    print(js)
+
 
     # co = CompileOptions(mode=Mode.Application, version=7)
 
@@ -204,8 +206,8 @@ if __name__ == "__main__":
     # print(expected)
     # print(actual)
 
-    pcomp = compileTeal(program, mode=Mode.Application, version=7).split("\n")
-    rgcomp = compileTeal(regen_program, mode=Mode.Application, version=7).split("\n")
-    for idx in range(len(pcomp)):
-        print(idx, pcomp[idx])
-        print(idx, rgcomp[idx])
+    #pcomp = compileTeal(program, mode=Mode.Application, version=7).split("\n")
+    #rgcomp = compileTeal(regen_program, mode=Mode.Application, version=7).split("\n")
+    #for idx in range(len(pcomp)):
+    #    print(idx, pcomp[idx])
+    #    print(idx, rgcomp[idx])
